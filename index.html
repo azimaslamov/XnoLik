@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>XnoLik — 3D Tic-Tac-Toe</title>
+    <link rel="icon" type="image/png" href="Xnolik.png">
+    <link rel="apple-touch-icon" href="Xnolik.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#050505">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="XnoLik">
+    <style>
+        /* ==========================================================================
+           ASOSIY DIZAYN VA GLASSMORPHISM (APPLE-ESQUE)
+           ========================================================================== */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background-color: #050505;
+            color: #ffffff;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #webgl-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* Glassmorphism UI qismlari */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+            z-index: 10;
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(0.95);
+        }
+
+        /* Menyular */
+        #start-menu {
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 300;
+            margin-bottom: 10px;
+            letter-spacing: 2px;
+        }
+
+        p.subtitle {
+            font-weight: 300;
+            color: #aaaaaa;
+            margin-bottom: 30px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 400;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(4px);
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(255, 255, 255, 0.1);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        /* O'yin holati (HUD) */
+        #hud {
+            position: absolute;
+            top: 30px;
+            padding: 10px 25px;
+            border-radius: 30px;
+            font-size: 1.2rem;
+            font-weight: 300;
+            letter-spacing: 1px;
+            z-index: 10;
+        }
+
+        /* Mualliflik huquqi */
+        #branding-footer {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            font-size: 0.75rem;
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.4);
+            z-index: 10;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D Grafika uchun konteyner -->
+    <div id="webgl-container"></div>
+
+    <!-- O'yinni boshlash menyusi -->
+    <div id="start-menu" class="glass-panel">
+        <h1>Tic-Tac-Toe</h1>
+        <p class="subtitle">Tomoningizni tanlang</p>
+        <div class="btn-group">
+            <button onclick="game.startGame('X')">X sifatida o'ynash</button>
+            <button onclick="game.startGame('O')">O sifatida o'ynash</button>
+        </div>
+    </div>
+
+    <!-- O'yin jarayoni ma'lumotlari (HUD) -->
+    <div id="hud" class="glass-panel hidden">
+        <span id="turn-indicator">O'yin boshlanmoqda...</span>
+    </div>
+
+    <!-- Natija menyusi -->
+    <div id="end-menu" class="glass-panel hidden">
+        <h1 id="result-title">G'olib: X</h1>
+        <button onclick="game.resetGame()" style="margin-top: 20px;">Yana o'ynash</button>
+    </div>
+
+    <!-- Mualliflik huquqi -->
+    <div id="branding-footer">
+        © 2026 Azim Aslamov. All rights reserved.
+    </div>
+
+    <!-- Kutubxonalar: Three.js va GSAP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+
+    <script>
+        class TicTacToe3D {
+            constructor() {
+                this.board = Array(9).fill(null);
+                this.humanPlayer = 'X';
+                this.aiPlayer = 'O';
+                this.currentPlayer = 'X';
+                this.isGameActive = false;
+                this.isAiThinking = false;
+
+                this.startMenu = document.getElementById('start-menu');
+                this.endMenu = document.getElementById('end-menu');
+                this.hud = document.getElementById('hud');
+                this.turnIndicator = document.getElementById('turn-indicator');
+                this.resultTitle = document.getElementById('result-title');
+                
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.raycaster = new THREE.Raycaster();
+                this.mouse = new THREE.Vector2();
+                this.cells = [];
+                this.pieces = [];
+
+                this.initThreeJS();
+                this.createEnvironment();
+                this.createBoard();
+                this.bindEvents();
+                this.animate();
+            }
+
+            initThreeJS() {
+                const container = document.getElementById('webgl-container');
+
+                this.scene = new THREE.Scene();
+                this.scene.fog = new THREE.FogExp2(0x050505, 0.02);
+
+                this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+                this.camera.position.set(0, 14, 6);
+                this.camera.lookAt(0, 0, 0);
+
+                this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+                
+                container.appendChild(this.renderer.domElement);
+            }
+
+            createEnvironment() {
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                this.scene.add(ambientLight);
+
+                const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+                dirLight.position.set(5, 10, 5);
+                dirLight.castShadow = true;
+                dirLight.shadow.mapSize.width = 2048;
+                dirLight.shadow.mapSize.height = 2048;
+                dirLight.shadow.camera.near = 0.5;
+                dirLight.shadow.camera.far = 25;
+                dirLight.shadow.bias = -0.001;
+                this.scene.add(dirLight);
+
+                const backLight = new THREE.PointLight(0x4488ff, 2, 20);
+                backLight.position.set(-5, 2, -5);
+                this.scene.add(backLight);
+            }
+
+            createBoard() {
+                const boardGroup = new THREE.Group();
+                
+                const cellMaterial = new THREE.MeshPhysicalMaterial({
+                    color: 0x444444,
+                    metalness: 0.8,
+                    roughness: 0.2,
+                    clearcoat: 1.0,
+                    clearcoatRoughness: 0.1,
+                    transparent: true,
+                    opacity: 0.6
+                });
+
+                const cellGeometry = new THREE.BoxGeometry(1.8, 0.2, 1.8);
+                const spacing = 2;
+
+                for (let i = 0; i < 9; i++) {
+                    const row = Math.floor(i / 3) - 1;
+                    const col = (i % 3) - 1;
+
+                    const cell = new THREE.Mesh(cellGeometry, cellMaterial);
+                    cell.position.set(col * spacing, 0, row * spacing);
+                    cell.receiveShadow = true;
+                    cell.userData = { index: i };
+
+                    this.cells.push(cell);
+                    boardGroup.add(cell);
+                }
+
+                this.scene.add(boardGroup);
+            }
+
+            spawnPiece(type, index) {
+                const targetCell = this.cells[index];
+                let mesh;
+
+                if (type === 'X') {
+                    const xGroup = new THREE.Group();
+                    const xMaterial = new THREE.MeshPhysicalMaterial({
+                        color: 0xff2a55,
+                        metalness: 0.3,
+                        roughness: 0.2,
+                        clearcoat: 1.0,
+                        clearcoatRoughness: 0.1
+                    });
+                    const cylinderGeo = new THREE.CylinderGeometry(0.15, 0.15, 1.4, 32);
+                    
+                    const part1 = new THREE.Mesh(cylinderGeo, xMaterial);
+                    part1.rotation.z = Math.PI / 4;
+                    part1.rotation.x = Math.PI / 2;
+                    part1.castShadow = true;
+                    
+                    const part2 = new THREE.Mesh(cylinderGeo, xMaterial);
+                    part2.rotation.z = -Math.PI / 4;
+                    part2.rotation.x = Math.PI / 2;
+                    part2.castShadow = true;
+
+                    xGroup.add(part1, part2);
+                    mesh = xGroup;
+                } else {
+                    const oGeometry = new THREE.TorusGeometry(0.5, 0.15, 16, 64);
+                    const oMaterial = new THREE.MeshPhysicalMaterial({
+                        color: 0x2a9dff,
+                        metalness: 0.1,
+                        roughness: 0.05,
+                        transmission: 0.9,
+                        thickness: 1.5,
+                        clearcoat: 1.0
+                    });
+                    mesh = new THREE.Mesh(oGeometry, oMaterial);
+                    mesh.rotation.x = Math.PI / 2;
+                    mesh.castShadow = true;
+                }
+
+                mesh.position.set(targetCell.position.x, 5, targetCell.position.z);
+                this.scene.add(mesh);
+                this.pieces.push(mesh);
+
+                gsap.to(mesh.position, {
+                    y: 0.3,
+                    duration: 0.8,
+                    ease: "bounce.out"
+                });
+
+                mesh.scale.set(0, 0, 0);
+                gsap.to(mesh.scale, {
+                    x: 1, y: 1, z: 1,
+                    duration: 0.6,
+                    ease: "back.out(1.7)"
+                });
+            }
+
+            bindEvents() {
+                window.addEventListener('resize', this.onWindowResize.bind(this));
+                window.addEventListener('pointerdown', this.onMouseClick.bind(this));
+            }
+
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+
+            onMouseClick(event) {
+                if (!this.isGameActive || this.isAiThinking || this.currentPlayer !== this.humanPlayer) return;
+
+                this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                this.raycaster.setFromCamera(this.mouse, this.camera);
+                const intersects = this.raycaster.intersectObjects(this.cells);
+
+                if (intersects.length > 0) {
+                    const index = intersects[0].object.userData.index;
+                    if (this.board[index] === null) {
+                        this.makeMove(index, this.humanPlayer);
+                    }
+                }
+            }
+
+            startGame(playerSide) {
+                this.humanPlayer = playerSide;
+                this.aiPlayer = playerSide === 'X' ? 'O' : 'X';
+                
+                this.startMenu.classList.add('hidden');
+                this.hud.classList.remove('hidden');
+                
+                this.board = Array(9).fill(null);
+                this.currentPlayer = 'X';
+                this.isGameActive = true;
+                
+                this.updateHUD();
+
+                if (this.currentPlayer === this.aiPlayer) {
+                    this.executeAITurn();
+                }
+            }
+
+            makeMove(index, player) {
+                this.board[index] = player;
+                this.spawnPiece(player, index);
+
+                const winner = this.checkWinner(this.board);
+                if (winner) {
+                    this.endGame(winner);
+                    return;
+                }
+
+                this.currentPlayer = this.currentPlayer === 'X' ? 'O' : 'X';
+                this.updateHUD();
+
+                if (this.currentPlayer === this.aiPlayer) {
+                    this.executeAITurn();
+                }
+            }
+
+            updateHUD() {
+                if (this.currentPlayer === this.aiPlayer) {
+                    this.turnIndicator.innerText = "SI o'ylamoqda...";
+                } else {
+                    this.turnIndicator.innerText = `${this.currentPlayer} o'yinchining navbati`;
+                }
+            }
+
+            executeAITurn() {
+                this.isAiThinking = true;
+                
+                setTimeout(() => {
+                    const bestMove = this.getBestMove();
+                    this.isAiThinking = false;
+                    this.makeMove(bestMove, this.aiPlayer);
+                }, 800);
+            }
+
+            endGame(result) {
+                this.isGameActive = false;
+                this.hud.classList.add('hidden');
+                this.endMenu.classList.remove('hidden');
+
+                if (result === 'tie') {
+                    this.resultTitle.innerText = "Durang!";
+                } else {
+                    this.resultTitle.innerText = `G'olib: ${result}`;
+                }
+            }
+
+            resetGame() {
+                this.endMenu.classList.add('hidden');
+                this.startMenu.classList.remove('hidden');
+
+                this.pieces.forEach(piece => {
+                    this.scene.remove(piece);
+                    if (piece.geometry) piece.geometry.dispose();
+                    if (piece.material) piece.material.dispose();
+                });
+                this.pieces = [];
+            }
+
+            checkWinner(board) {
+                const winCombos = [
+                    [0, 1, 2], [3, 4, 5], [6, 7, 8],
+                    [0, 3, 6], [1, 4, 7], [2, 5, 8],
+                    [0, 4, 8], [2, 4, 6]
+                ];
+
+                for (let i = 0; i < winCombos.length; i++) {
+                    const [a, b, c] = winCombos[i];
+                    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+                        return board[a];
+                    }
+                }
+
+                if (!board.includes(null)) {
+                    return 'tie';
+                }
+
+                return null;
+            }
+
+            getBestMove() {
+                let bestScore = -Infinity;
+                let move = -1;
+
+                let availableSpots = [];
+                for (let i = 0; i < 9; i++) {
+                    if (this.board[i] === null) availableSpots.push(i);
+                }
+
+                if (availableSpots.length === 9) return 4;
+
+                for (let i = 0; i < 9; i++) {
+                    if (this.board[i] === null) {
+                        this.board[i] = this.aiPlayer;
+                        let score = this.minimax(this.board, 0, -Infinity, Infinity, false);
+                        this.board[i] = null;
+                        
+                        if (score > bestScore) {
+                            bestScore = score;
+                            move = i;
+                        }
+                    }
+                }
+                return move;
+            }
+
+            minimax(board, depth, alpha, beta, isMaximizing) {
+                const result = this.checkWinner(board);
+                
+                if (result !== null) {
+                    if (result === this.aiPlayer) return 10 - depth;
+                    if (result === this.humanPlayer) return depth - 10;
+                    if (result === 'tie') return 0;
+                }
+
+                if (isMaximizing) {
+                    let bestScore = -Infinity;
+                    for (let i = 0; i < 9; i++) {
+                        if (board[i] === null) {
+                            board[i] = this.aiPlayer;
+                            let score = this.minimax(board, depth + 1, alpha, beta, false);
+                            board[i] = null;
+                            bestScore = Math.max(score, bestScore);
+                            alpha = Math.max(alpha, score);
+                            if (beta <= alpha) break;
+                        }
+                    }
+                    return bestScore;
+                } else {
+                    let bestScore = Infinity;
+                    for (let i = 0; i < 9; i++) {
+                        if (board[i] === null) {
+                            board[i] = this.humanPlayer;
+                            let score = this.minimax(board, depth + 1, alpha, beta, true);
+                            board[i] = null;
+                            bestScore = Math.min(score, bestScore);
+                            beta = Math.min(beta, score);
+                            if (beta <= alpha) break;
+                        }
+                    }
+                    return bestScore;
+                }
+            }
+
+            animate() {
+                requestAnimationFrame(this.animate.bind(this));
+
+                const time = Date.now() * 0.0005;
+                if (this.camera) {
+                    this.camera.position.x = Math.sin(time) * 0.5;
+                    this.camera.position.y = 14 + Math.cos(time * 0.8) * 0.2;
+                    this.camera.lookAt(0, 0, 0);
+                }
+
+                this.pieces.forEach((piece) => {
+                    piece.rotation.y = Math.sin(time + piece.position.x) * 0.1;
+                });
+
+                if (this.renderer && this.scene && this.camera) {
+                    this.renderer.render(this.scene, this.camera);
+                }
+            }
+        }
+
+        const game = new TicTacToe3D();
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(() => {});
+            });
+        }
+    </script>
+</body>
+</html>
